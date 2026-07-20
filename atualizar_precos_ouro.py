@@ -27,6 +27,5 @@ def atualizar():
     print(f"OK: {len(saida)} linhas salvas em {CAMINHO_SAIDA}")
     print(f"Último preço: {saida.iloc[-1]['data']} = {saida.iloc[-1]['preco']}")
 
-
 if __name__ == "__main__":
     atualizar()
