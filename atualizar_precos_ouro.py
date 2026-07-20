@@ -1,14 +1,13 @@
 """
 Atualizador automático do CSV de preços de ouro
-=================================================
 """
 
 import yfinance as yf
 import pandas as pd
 
-TICKER = "GLD"                       # troque para "GC=F" se preferir futuros
+TICKER = "GLD"
 DATA_INICIO = "2010-01-01"
-CAMINHO_SAIDA = "precos_ouro.csv"    # fica na raiz do repositório GitHub
+CAMINHO_SAIDA = "precos_ouro.csv"
 
 
 def atualizar():
