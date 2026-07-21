@@ -62,6 +62,12 @@ def main() -> None:
     # Anos em comum entre stocks, bonds e gold (esses tres cobrem 2006+)
     anos = sorted(set(dados["stocks"]) & set(dados["bonds"]) & set(dados["gold"]))
 
+    # O ano corrente ainda esta em andamento (nao fechou em 31/12), entao um
+    # retorno parcial nao e comparavel aos anos completos - excluimos ate
+    # o ano virar. Ele volta a aparecer sozinho, automaticamente, em janeiro.
+    ano_atual = datetime.now(timezone.utc).year
+    anos = [a for a in anos if a < ano_atual]
+
     def valor_cash(ano: int) -> float:
         if ano in dados["cash"]:
             return dados["cash"][ano]
