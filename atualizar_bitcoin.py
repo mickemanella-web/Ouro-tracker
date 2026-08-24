@@ -1,127 +1,78 @@
 """
-Atualiza os retornos anuais historicos do Bitcoin (BTC-USD).
+Atualizador automatico de retornos anuais do Bitcoin - Carteira Permanente
+Segue exatamente o mesmo metodo do atualizar_dados.py: baixa precos via
+yfinance (sem chave de API, sem conta em nenhum servico externo) e calcula
+o retorno total de cada ano civil.
 
-Segue o mesmo padrao do script atualizar_precos_ouro.py do repositorio Ouro-tracker,
-gerando um arquivo JSON com "years" e "bitcoin" (retorno percentual anual).
-
-Fonte de dados: CoinGecko API (publica, sem necessidade de chave de API).
-Documentacao: https://www.coingecko.com/en/api/documentation
-
-O Bitcoin so tem dados de mercado confiaveis a partir de ~2013-2014 (antes disso
-o volume de negociacao era baixo demais para representar um preco de mercado real).
-Por isso o dataset comeca em 2014.
+Por que trocamos a CoinGecko pelo yfinance:
+A CoinGecko passou a exigir cadastro + chave de API gratuita em 2026, o que
+significava mais uma conta externa pra manter. O Yahoo Finance ja tem o
+ticker BTC-USD com historico desde 2014, e o yfinance acessa sem
+autenticacao nenhuma - a mesma biblioteca que ja usamos pra VTI, TLT, GLD
+e BIL no atualizar_dados.py.
 """
-
 import json
-import os
-import time
-from datetime import date
-import urllib.request
-import urllib.error
+from datetime import datetime, timezone
+import pandas as pd
+import yfinance as yf
 
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
-ANO_INICIAL = 2014  # primeiro ano com dado de mercado confiavel
-ANO_FINAL = date.today().year
-
-SAIDA_JSON = "retornos_bitcoin.json"
-
-# A partir de 2026 a CoinGecko passou a exigir uma chave gratuita (Demo API
-# Key) mesmo no plano publico/keyless. A chave fica guardada como Secret no
-# GitHub (COINGECKO_API_KEY) e nunca aparece no codigo.
-COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
+TICKER = "BTC-USD"
+# Bitcoin so tem historico confiavel no Yahoo Finance a partir de 2014
+# (antes disso o volume de negociacao era baixo demais pra representar um
+# preco de mercado real).
+ANO_INICIAL = 2014
+DATA_INICIO = f"{ANO_INICIAL - 1}-01-01"
+SAIDA = "retornos_bitcoin.json"
 
 
-def timestamp_unix(ano, mes, dia):
-    import calendar
-    return calendar.timegm(date(ano, mes, dia).timetuple())
+def retorno_anual_bitcoin(inicio: str = DATA_INICIO) -> dict[int, float]:
+    """Baixa precos diarios do BTC-USD e retorna {ano: retorno_percentual}."""
+    df = yf.download(TICKER, start=inicio, progress=False, auto_adjust=True)
+    if df.empty:
+        raise RuntimeError(f"Falha ao baixar dados de {TICKER}")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    close = df["Close"]
+    close.index = pd.to_datetime(close.index)
+
+    retornos: dict[int, float] = {}
+    for ano in sorted(set(close.index.year)):
+        if ano < ANO_INICIAL:
+            continue
+        serie_ano = close[close.index.year == ano]
+        if len(serie_ano) < 2:
+            continue
+        preco_ini = float(serie_ano.iloc[0])
+        preco_fim = float(serie_ano.iloc[-1])
+        retornos[ano] = round((preco_fim / preco_ini - 1) * 100, 2)
+    return retornos
 
 
-def preco_proximo_de(data_alvo):
-    """Busca o preco de fechamento do BTC-USD mais proximo da data informada."""
-    inicio = timestamp_unix(data_alvo.year, data_alvo.month, data_alvo.day)
-    fim = inicio + 60 * 60 * 24 * 5  # janela de 5 dias, caso a data exata falte
+def main() -> None:
+    retornos = retorno_anual_bitcoin()
 
-    url = f"{COINGECKO_URL}?vs_currency=usd&from={inicio}&to={fim}"
-    headers = {"User-Agent": "ouro-tracker-bitcoin/1.0"}
-    if COINGECKO_API_KEY:
-        headers["x-cg-demo-api-key"] = COINGECKO_API_KEY
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            dados = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        corpo = e.read().decode(errors="ignore")
-        dica = ""
-        if e.code == 401:
-            dica = (
-                " (a chave da CoinGecko nao foi aceita - verifique se o "
-                "Secret COINGECKO_API_KEY no repositorio esta com o valor "
-                "certo e se a chave ainda esta ativa no dashboard da CoinGecko)"
-            )
-        raise RuntimeError(
-            f"CoinGecko retornou HTTP {e.code} para {data_alvo}{dica}: {corpo[:300]}"
-        ) from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(
-            f"Falha de conexao com a CoinGecko para {data_alvo}: {e.reason}"
-        ) from e
+    # O ano corrente ainda esta em andamento (nao fechou em 31/12), entao um
+    # retorno parcial nao e comparavel aos anos completos - mesma regra do
+    # atualizar_dados.py. Ele volta a aparecer sozinho, automaticamente, em
+    # janeiro.
+    ano_atual = datetime.now(timezone.utc).year
+    anos = sorted(a for a in retornos if a < ano_atual)
 
-    precos = dados.get("prices", [])
-    if not precos:
-        raise ValueError(f"Sem dados de preco proximos a {data_alvo}")
-
-    # primeiro preco disponivel na janela
-    return precos[0][1]
-
-
-def calcular_retornos_anuais():
-    anos = []
-    retornos = []
-
-    preco_anterior = preco_proximo_de(date(ANO_INICIAL - 1, 12, 31))
-
-    for ano in range(ANO_INICIAL, ANO_FINAL + 1):
-        # 31/dez, exceto no ano corrente (usa o dia de hoje)
-        if ano == ANO_FINAL:
-            data_ref = date.today()
-        else:
-            data_ref = date(ano, 12, 31)
-
-        preco_atual = preco_proximo_de(data_ref)
-        retorno_pct = round((preco_atual / preco_anterior - 1) * 100, 2)
-
-        anos.append(ano)
-        retornos.append(retorno_pct)
-
-        preco_anterior = preco_atual
-        time.sleep(2.5)  # respeitar rate limit gratuito da CoinGecko (IP compartilhado no GitHub Actions)
-
-    return anos, retornos
-
-
-def main():
-    if not COINGECKO_API_KEY:
-        raise RuntimeError(
-            "Variavel de ambiente COINGECKO_API_KEY nao configurada. "
-            "Crie uma chave gratuita em coingecko.com/en/developers/dashboard "
-            "e salve como Secret do repositorio (Settings > Secrets and "
-            "variables > Actions > New repository secret)."
-        )
-
-    anos, retornos = calcular_retornos_anuais()
+    if not anos:
+        raise RuntimeError("Nenhum ano completo de dados do Bitcoin disponivel")
 
     saida = {
         "years": anos,
-        "bitcoin": retornos,
-        "fonte": "CoinGecko API",
+        "bitcoin": [retornos[a] for a in anos],
+        "fonte": "yfinance (BTC-USD, precos de fechamento no Yahoo Finance)",
         "primeiro_ano_disponivel": ANO_INICIAL,
-        "atualizado_em": date.today().isoformat(),
+        "atualizado_em": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
     }
 
-    with open(SAIDA_JSON, "w", encoding="utf-8") as f:
-        json.dump(saida, f, indent=2, ensure_ascii=False)
+    with open(SAIDA, "w", encoding="utf-8") as f:
+        json.dump(saida, f, ensure_ascii=False, indent=2)
 
-    print(f"Arquivo {SAIDA_JSON} atualizado com {len(anos)} anos de dados.")
+    print(f"OK: {SAIDA} salvo com {len(anos)} anos ({anos[0]}-{anos[-1]})")
 
 
 if __name__ == "__main__":
