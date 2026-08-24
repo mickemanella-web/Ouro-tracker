@@ -20,6 +20,8 @@ jobs:
           python-version: "3.11"
 
       - name: Rodar script de atualização
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python atualizar_bitcoin.py
 
       - name: Commit e push se houver mudanças
