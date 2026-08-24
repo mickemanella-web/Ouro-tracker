@@ -19,9 +19,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Instalar dependências
+        run: pip install yfinance pandas
+
       - name: Rodar script de atualização
-        env:
-          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python atualizar_bitcoin.py
 
       - name: Commit e push se houver mudanças
