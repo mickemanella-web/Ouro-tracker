@@ -99,7 +99,7 @@
     -0.07,
     -0.11,
     0.09,
-    0.65,
+    0.64,
     1.73,
     2.04,
     0.37,
@@ -109,6 +109,6 @@
     5.18,
     4.12
   ],
-  "last_updated": "2026-08-24 06:57 UTC",
+  "last_updated": "2026-08-25 06:47 UTC",
   "fonte": "yfinance (VTI, TLT, GLD, BIL - precos ajustados por dividendos)"
 }
